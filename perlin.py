@@ -4,7 +4,20 @@ import tensorflow as tf
 
 
 def fade(t):
-    return t * t * t * (t * (6 * t - 15) + 10)
+    # return t * t * t * (t * (6 * t - 15) + 10)
+    return t * t * (3 - 2 * t)
+
+
+def lerp(a, b, dist):
+    """
+    Linear interpolation
+    :param a: Dot product at the first grid point of interest
+    :param b: Dot product at the second grid point of interest
+    :param dist: Distance from the first grid point of interest (or faded distance)
+    :return: The linearly interpolated result
+    """
+    # Equivalent to a(1-x)+bx
+    return a + dist * (b - a)
 
 
 def get_random_vec():
@@ -13,6 +26,7 @@ def get_random_vec():
 
 
 if __name__ == "__main__":
+    np.random.seed(0)
     # I'd like for these to be global variables, hence no main() function
     dim = 8
     num_pixels = 16
@@ -24,10 +38,6 @@ if __name__ == "__main__":
         for j in range(dim):
             grid[i, j, :] = get_random_vec()
 
-    # plt.imshow(grid[:, :, 0])
-    # plt.show()
-    # plt.imshow(grid[:, :, 1])
-    # plt.show()
     for i in range(fidelity):
         for j in range(fidelity):
             # Offsets from grid points
@@ -35,28 +45,10 @@ if __name__ == "__main__":
             left_top_off = np.array([i % num_pixels, j % num_pixels - num_pixels])
             right_bot_off = np.array([i % num_pixels - num_pixels, j % num_pixels])
             right_top_off = np.array([i % num_pixels - num_pixels, j % num_pixels - num_pixels])
-            # If we're at one of the corners, then the contribution is 0
-            if np.linalg.norm(left_bot_off) == 0:
-                left_bot_off = np.zeros(2)
-            else:
-                left_bot_off = left_bot_off / np.linalg.norm(left_bot_off)
-            if np.linalg.norm(left_top_off) == 0:
-                left_top_off = np.zeros(2)
-            else:
-                left_top_off = left_top_off / np.linalg.norm(left_top_off)
-            if np.linalg.norm(right_bot_off) == 0:
-                right_bot_off = np.zeros(2)
-            else:
-                right_bot_off = right_bot_off / np.linalg.norm(right_bot_off)
-            if np.linalg.norm(right_top_off) == 0:
-                right_top_off = np.zeros(2)
-            else:
-                right_top_off = right_top_off / np.linalg.norm(right_top_off)
 
             # Coordinates of the grid point to the bottom left of us
             x = np.floor(i / num_pixels).astype(np.int32)
             y = np.floor(j / num_pixels).astype(np.int32)
-            # print(f"{x}, {y}")
             # Influence values
             left_bot_infl = np.dot(left_bot_off, grid[x, y, :])
             left_top_infl = np.dot(left_top_off, grid[x, y + 1, :])
@@ -66,18 +58,16 @@ if __name__ == "__main__":
             This is where we should be using a fade function. Just testing that it works, then will change it
             Calculate dropoff values and then sum them up
             """
-            faded = False
+            faded = True
             simple_sum = False
-            closest_grid = True
+            closest_grid = False
             if faded:
-                left_bot_drop = fade(1 - np.abs(left_bot_off[0])) * fade(1 - np.abs(left_bot_off[1]))
-                left_top_drop = fade(1 - np.abs(left_top_off[0])) * fade(1 - np.abs(left_top_off[1]))
-                right_bot_drop = fade(1 - np.abs(right_bot_off[0])) * fade(1 - np.abs(right_bot_off[1]))
-                right_top_drop = fade(1 - np.abs(right_top_off[0])) * fade(1 - np.abs(right_top_off[1]))
-                image[i, j] += left_bot_drop * left_bot_infl
-                image[i, j] += left_top_drop * left_top_infl
-                image[i, j] += right_bot_drop * right_bot_infl
-                image[i, j] += right_top_drop * right_top_infl
+                x_fade = fade(left_bot_off[0] / num_pixels)
+                y_fade = fade(left_bot_off[1] / num_pixels)
+                # (Faded) linear interpolation for the left and right sides
+                l_infl = lerp(left_bot_infl, left_top_infl, y_fade)
+                r_infl = lerp(right_bot_infl, right_top_infl, y_fade)
+                image[i, j] = lerp(l_infl, r_infl, x_fade)
             elif simple_sum:
                 image[i, j] = left_bot_infl + left_top_infl + right_bot_infl + right_top_infl
             elif closest_grid:
@@ -92,6 +82,7 @@ if __name__ == "__main__":
                     image[i, j] = right_top_infl
 
     plt.imshow(image)
+    plt.colorbar()
     plt.show()
-    plt.hist(image[1, :], density=True)
-    plt.show()
+    # plt.hist(image[1, :], density=True)
+    # plt.show()
