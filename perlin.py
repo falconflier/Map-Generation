@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from sklearn import preprocessing
 
 
 def show_terrain(base):
@@ -15,16 +14,18 @@ def show_terrain(base):
     mountain = [139, 137, 137]
 
     threshold = 0
+    # Making sure that it's Min-Max scaled
     base = (base - np.amin(base)) / (np.amax(base) - np.amin(base))
     # print(f"Maximum value of base is {np.amax(base)}\nMinimum value of base is {np.amin(base)}")
     terrain = np.zeros(shape=(fidelity, fidelity, 3), dtype=np.uint8)
-    terrain[np.where(base < 0.5)] = blue
-    terrain[np.where((base > 0.5) & (base < 0.51))] = sandy
-    terrain[np.where((base > 0.51) & (base < 0.55))] = beach
-    terrain[np.where((base > 0.55) & (base < 0.65))] = green
-    terrain[np.where((base > 0.65) & (base < 0.8))] = dark_green
-    terrain[np.where((base > 0.8) & (base < 0.9))] = mountain
-    terrain[np.where(base > 0.9)] = snow
+    terrain[np.where(base < 0.4)] = blue
+    terrain[np.where((base >= 0.4) & (base < 0.5))] = light_blue
+    terrain[np.where((base >= 0.5) & (base < 0.51))] = sandy
+    terrain[np.where((base >= 0.51) & (base < 0.55))] = beach
+    terrain[np.where((base >= 0.55) & (base < 0.65))] = green
+    terrain[np.where((base >= 0.65) & (base < 0.8))] = dark_green
+    terrain[np.where((base >= 0.8) & (base < 0.9))] = mountain
+    terrain[np.where(base >= 0.9)] = snow
 
     plt.imshow(terrain)
     plt.show()
@@ -47,7 +48,9 @@ def f_brownian(base, num_octaves=5, decay_factor=0.5):
 
 
 def get_octave(base, octave):
+    # We need a place to hold all of the extra pixels
     larger = np.zeros(shape=(fidelity * octave, fidelity * octave))
+    # These are the flipped versions of the basic image we start with. We need this to avoid discontinuities
     lr_flip = np.fliplr(base)
     ud_flip = np.flipud(base)
     all_flip = np.fliplr(base)
@@ -70,7 +73,7 @@ def get_octave(base, octave):
     smaller = mean_pool(larger)
     # print(f"smaller has size {np.shape(smaller)}")
     """
-    # Bumping up the number of copies of the original
+    # An old version of what I did that leaves sharp discontinuities going across octaves
     larger = np.tile(base, (octave, octave))
     """
     return smaller[0, :, :, 0]
@@ -94,6 +97,22 @@ def lerp(a, b, dist):
     return a + dist * (b - a)
 
 
+def get_circular_filter():
+    coord_dim = np.floor(fidelity / 2)
+    # This accounts for the even or odd number of pixels in the image
+    pad = fidelity % 2
+    x, y = np.ogrid[-coord_dim:coord_dim + pad, -coord_dim:coord_dim + pad]
+    r = np.sqrt(np.square(x) + np.square(y))
+
+    delta_r = 1
+    mask = np.zeros((fidelity, fidelity))
+    for i in range(fidelity, 1, -delta_r):
+        # print(i)
+        # mask[np.where((r >= i - 1) & (r < i))] = 1 - i / fidelity
+        mask[np.where((r < i))] = 1 - fade(i / fidelity)
+    return mask
+
+
 def get_random_vec():
     """
     Choose a point on a circle (2 Dimensions) uniformly. As we learned the hard way, distributions in higher dimensions
@@ -104,15 +123,10 @@ def get_random_vec():
     return v / np.linalg.norm(v)
 
 
-if __name__ == "__main__":
-    np.random.seed(0)
-    # I'd like for these to be global variables, hence no main() function
-    dim = 8
-    num_pixels = 64
-    fidelity = num_pixels * (dim - 1)
+def perlin():
     # Grid of random two-dimensional unit vectors
     grid = np.zeros((dim, dim, 2))
-    image = np.zeros((fidelity, fidelity))
+    noise_image = np.zeros((fidelity, fidelity))
     """
     This defines the random vectors at the corners of the grid. Four adjacent random vectors form a square.
     Points inside a square will be dotted with vectors associated with the four points of the square
@@ -154,39 +168,58 @@ if __name__ == "__main__":
                 # (Faded) linear interpolation for the left and right sides
                 l_infl = lerp(left_bot_infl, left_top_infl, y_fade)
                 r_infl = lerp(right_bot_infl, right_top_infl, y_fade)
-                image[i_idx, j_idx] = lerp(l_infl, r_infl, x_fade)
+                noise_image[i_idx, j_idx] = lerp(l_infl, r_infl, x_fade)
             elif simple_sum:
-                image[i_idx, j_idx] = left_bot_infl + left_top_infl + right_bot_infl + right_top_infl
+                noise_image[i_idx, j_idx] = left_bot_infl + left_top_infl + right_bot_infl + right_top_infl
             elif closest_grid:
                 distances = np.array(
                     [np.linalg.norm(left_bot_off), np.linalg.norm(left_top_off), np.linalg.norm(right_bot_off),
                      np.linalg.norm(right_top_off)])
                 if np.argmin(distances) == 0:
-                    image[i_idx, j_idx] = left_bot_infl
+                    noise_image[i_idx, j_idx] = left_bot_infl
                 elif np.argmin(distances) == 1:
-                    image[i_idx, j_idx] = left_top_infl
+                    noise_image[i_idx, j_idx] = left_top_infl
                 elif np.argmin(distances) == 2:
-                    image[i_idx, j_idx] = right_bot_infl
+                    noise_image[i_idx, j_idx] = right_bot_infl
                 elif np.argmin(distances) == 3:
-                    image[i_idx, j_idx] = right_top_infl
+                    noise_image[i_idx, j_idx] = right_top_infl
 
-    plt.imshow(image)
-    plt.colorbar()
-    plt.show()
+    # Min max scaling it
+    noise_image = (noise_image - np.amin(noise_image)) / (np.amax(noise_image) - np.amin(noise_image))
+    return noise_image
+
+
+if __name__ == "__main__":
+    np.random.seed(0)
+    # I'd like for these to be global variables, hence no main() function
+    dim = 8
+    num_pixels = 64
+    fidelity = num_pixels * (dim - 1)
+
+    image = perlin()
+
+    # plt.imshow(image)
+    # plt.colorbar()
+    # plt.show()
 
     # octave = get_octave(image, 4)
     # plt.imshow(octave)
     # plt.colorbar()
     # plt.show()
 
-    show_terrain(image)
+    # show_terrain(image))
 
     """
-    Now we try to implement fractal Brownian Motion
+    Implements fractal Brownian Motion
     """
-    # fractal_image = f_brownian(image, num_octaves=3, decay_factor=0.5)
-    # plt.imshow(fractal_image)
-    # plt.colorbar()
-    # plt.show()
-    #
-    # show_terrain(fractal_image)
+    fractal_image = f_brownian(image, num_octaves=7, decay_factor=0.5)
+    show_terrain(fractal_image)
+    plt.imshow(fractal_image)
+    plt.colorbar()
+    plt.show()
+
+    """
+    This turns it into a proper archipelago
+    """
+    circle_filter = get_circular_filter()
+    show_terrain(fractal_image * circle_filter)

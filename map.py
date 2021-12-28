@@ -1,3 +1,7 @@
+"""
+This was a file where I tried to use MCMC on the Ising model to draw a map. This was a terrible idea, partially
+because of the atrocious runtime, so I switched to using Perlin noise.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 
