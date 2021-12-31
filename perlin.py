@@ -73,17 +73,6 @@ def show_large_downsample_image(base, partition_pixels=8):
                 base[i * partition_pixels:(i + 1) * partition_pixels, j * partition_pixels:(j + 1) * partition_pixels])
             # print(f"Color rgb is {color_rgb}")
             terrain[i * partition_pixels:(i + 1) * partition_pixels, j * partition_pixels:(j + 1) * partition_pixels, :] = color_rgb
-    """
-    # This step drops any pixels that have not been filled (which will still contain purple as their value)
-    # terrain != color_dict["purple"] checks where this isn't the case, and we use np.where to filter where this is
-    # true; indices which we keep. This unfortunately leaves the array in a 1-D mess, so we have to reshape it.
-    # Fortunately, we know that the remnants will be divisible by three, and we can take the square root to find the
-    # new image shape. The fact that the square root will yield an integer is due to us starting with square images
-    # and using the same number of partitions for both the x and y dimensions
-    # """
-    # terrain = terrain[np.where(terrain != -1)]
-    # length = int(np.sqrt(np.size(terrain) / 3))
-    # terrain = np.reshape(terrain, (length, length, 3)).astype(np.uint8)
     # Show the results
     plt.imshow(terrain)
     plt.show()
